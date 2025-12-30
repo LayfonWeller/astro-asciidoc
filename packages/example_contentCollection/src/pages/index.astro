@@ -1,15 +1,10 @@
 ---
 import { getCollection, type CollectionEntry } from 'astro:content';
 const posts = await getCollection('blog');
-const posts2 = await getCollection('blog2');
 ---
 <h1>My posts</h1>
 <ul>
   {posts.map((post: CollectionEntry<'blog'>) => (
     <li><a href={`/blog/${post.id}`}>{post.data.title}</a></li>
-  ))}
-
-  {posts2.map((post: CollectionEntry<'blog2'>) => (
-    <li><a href={`/blog2/${post.id}`}>{post.data.title}</a></li>
   ))}
 </ul>
