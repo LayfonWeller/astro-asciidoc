@@ -1,6 +1,7 @@
 import type { ProcessorOptions } from "@asciidoctor/core";
 import type { AstroIntegration } from "astro";
 import type { ViteDevServer } from "vite";
+import { parseFrontmatter } from "@astrojs/markdown-remark";
 import AsciidocConverter from "./asciidoctor.js";
 import type { InitOptions } from "./worker.js";
 
@@ -31,70 +32,37 @@ export interface Options extends InitOptions {
 }
 
 /**
- * Minimal AsciiDoc frontmatter extraction:
- * - YAML front matter between "---" delimiters
- * - Title from first line starting with "= "
- * - Attributes from leading lines like ":key: value"
- * Stops parsing on first non-attribute, non-empty, non-title line
+ * Parse AsciiDoc frontmatter using Astro's built-in parser.
+ * Supports YAML front matter between "---" delimiters and AsciiDoc attributes.
  */
 function parseAdocFrontmatter(contents: string): {
-  frontmatter: Record<string, string>;
+  frontmatter: Record<string, any>;
   body: string;
   rawFrontmatter?: string;
 } {
-  const lines = contents.split(/\r?\n/);
-  const frontmatter: Record<string, string> = {};
-  const rawFrontmatter: string[] = [];
+  // Use Astro's built-in frontmatter parser for YAML
+  const parsed = parseFrontmatter(contents, { frontmatter: "remove" });
+  const frontmatter = parsed.frontmatter;
+
+  // Parse remaining AsciiDoc-specific attributes from the content
+  const lines = parsed.content.split(/\r?\n/);
   let bodyStartIndex = 0;
+  const additionalAttrs: string[] = [];
 
   // Skip initial blank lines
   while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
     bodyStartIndex++;
   }
 
-  // Check for YAML front matter (--- at the start)
-  if (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "---") {
-    rawFrontmatter.push(lines[bodyStartIndex]);
-    bodyStartIndex++;
-
-    // Parse YAML front matter until closing ---
-    while (bodyStartIndex < lines.length) {
-      const line = lines[bodyStartIndex];
-      rawFrontmatter.push(line);
-
-      if (line.trim() === "---") {
-        bodyStartIndex++;
-        break;
-      }
-
-      // Simple YAML parsing: "key: value"
-      const yamlMatch = line.match(/^(\w+):\s*(.*)$/);
-      if (yamlMatch) {
-        const key = yamlMatch[1].trim();
-        const value = yamlMatch[2].trim();
-        frontmatter[key] = value;
-      }
-
-      bodyStartIndex++;
-    }
-
-    // Skip blank lines after YAML front matter
-    while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
-      bodyStartIndex++;
-    }
-  }
-
-  // Title line: "= Title"
+  // Title line: "= Title" (only if not already in YAML frontmatter)
   if (bodyStartIndex < lines.length && /^=\s+/.test(lines[bodyStartIndex])) {
     const titleLine = lines[bodyStartIndex].replace(/^=\s+/, "").trim();
     if (titleLine && !frontmatter.title) {
       frontmatter.title = titleLine;
-      rawFrontmatter.push(lines[bodyStartIndex]);
     }
     bodyStartIndex++;
     // Consume any immediate blank lines after title
     while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
-      rawFrontmatter.push(lines[bodyStartIndex]);
       bodyStartIndex++;
     }
   }
@@ -104,7 +72,6 @@ function parseAdocFrontmatter(contents: string): {
     const line = lines[bodyStartIndex];
     const trimmed = line.trim();
     if (trimmed === "") {
-      rawFrontmatter.push(line);
       bodyStartIndex++;
       continue;
     }
@@ -113,15 +80,23 @@ function parseAdocFrontmatter(contents: string): {
     const key = m[1].trim();
     const value = m[2].trim();
     frontmatter[key] = value;
-    rawFrontmatter.push(line);
+    additionalAttrs.push(line);
     bodyStartIndex++;
   }
 
-  const body = lines.slice(bodyStartIndex).join("\n").trim();
+  // Combine raw frontmatter from YAML and additional attributes
+  const rawParts: string[] = [];
+  if (parsed.rawFrontmatter) {
+    rawParts.push(parsed.rawFrontmatter);
+  }
+  if (additionalAttrs.length > 0) {
+    rawParts.push(additionalAttrs.join("\n"));
+  }
+
   return {
     frontmatter,
-    body,
-    rawFrontmatter: rawFrontmatter.join("\n").trim() || undefined,
+    body : parsed.content,
+    rawFrontmatter: rawParts.join("\n").trim() || undefined,
   };
 }
 
@@ -171,7 +146,7 @@ export default function asciidoc(opts?: Options): AstroIntegration {
     name: "asciidoc",
     hooks: {
       "astro:config:setup": async (params) => {
-        const { addPageExtension, addRenderer, updateConfig, addWatchFile, addContentEntryType } =
+        const { addPageExtension, addRenderer, updateConfig, addWatchFile, addContentEntryType, logger } =
           params as InternalHookParams;
 
         addRenderer({ name: "astro:mdx", serverEntrypoint: "@astrojs/mdx/server.js" });
@@ -207,12 +182,13 @@ export default function asciidoc(opts?: Options): AstroIntegration {
                 async transform(_code, id) {
                   if (!id.endsWith(asciidocFileExt)) return;
 
-                  console.log(`[asciidoc] transform start: ${id}`);
+                  logger.info(`transform start: ${id} code: ${JSON.stringify(_code)}`);
+                  logger.info(`transform start: ${id} documentOptions: ${JSON.stringify(documentOptions)}`);
                   const doc = await converter.convert({
                     file: id,
                     options: documentOptions,
                   });
-                  console.log(`[asciidoc] transform done: ${id}`);
+                  logger.info(`transform done: ${id}`);
 
                   // Ensure Vite knows about included files in both dev and build
                   if (Array.isArray(doc.includes)) {

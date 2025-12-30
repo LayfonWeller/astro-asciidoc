@@ -9,6 +9,7 @@ import asciidoctor from "@asciidoctor/core";
 import type { MarkdownHeading } from "astro";
 import { fileURLToPath, pathToFileURL, URL } from "node:url";
 import { parentPort, workerData } from "node:worker_threads";
+import { VFile } from "vfile";
 
 export interface InitOptions {
   /**
@@ -52,7 +53,10 @@ export interface InitOptions {
 }
 
 export interface InputMessage {
+  /** File path for file-based content, or an identifier for virtual content */
   file: string;
+  /** Content string for virtual files (e.g., from web). If not provided, file will be loaded from disk */
+  content?: string;
   options?: ProcessorOptions;
 }
 
@@ -157,7 +161,17 @@ async function worker(opts?: InitOptions) {
   await registerExtensions(converter.Extensions, opts?.extensions);
 
   parentPort?.on("message", (data: InputMessage) => {
-    const doc = converter.loadFile(data.file, data.options);
+    // Create VFile to standardize handling of both file-based and virtual content
+    const vfile = new VFile({
+      value: data.content,  // undefined for file-based content
+      path: data.file,      // can be a file path or virtual identifier
+    });
+
+    // Load document: use content if provided (virtual), otherwise load from file
+    const doc = data.content
+      ? converter.load(data.content, { ...data.options, base_dir: data.options?.base_dir })
+      : converter.loadFile(data.file, data.options);
+
     const layout = doc.getAttribute("layout") as string | undefined;
     const html = doc.convert(<ProcessorOptions>{
       standalone: !layout,

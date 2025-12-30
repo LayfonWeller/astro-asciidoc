@@ -6,7 +6,6 @@ const entry = await getEntry("blog", "index");
 const { Content } = await render(entry);
 ---
 
-<Layout title={entry.data.title}>
-  <p>Description: {entry.data.description}</p>
+<!-- <Layout title={entry.data.title}> -->
   <Content />
-</Layout>
+<!-- </Layout> -->

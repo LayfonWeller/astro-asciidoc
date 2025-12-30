@@ -1,5 +1,4 @@
 ---
-title: Astro AsciiDoc
 description: Support AsciiDoc pages in Astro.
 ---
 = Astro AsciiDoc

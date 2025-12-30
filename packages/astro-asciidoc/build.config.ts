@@ -12,5 +12,6 @@ export default defineBuildConfig({
   rollup: {
     emitCJS: true,
   },
+  externals: ["@astrojs/markdown-remark"],
   declaration: true,
 });
