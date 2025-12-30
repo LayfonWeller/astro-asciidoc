@@ -56,17 +56,17 @@ function parseAdocFrontmatter(contents: string): {
   if (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "---") {
     rawFrontmatter.push(lines[bodyStartIndex]);
     bodyStartIndex++;
-    
+
     // Parse YAML front matter until closing ---
     while (bodyStartIndex < lines.length) {
       const line = lines[bodyStartIndex];
       rawFrontmatter.push(line);
-      
+
       if (line.trim() === "---") {
         bodyStartIndex++;
         break;
       }
-      
+
       // Simple YAML parsing: "key: value"
       const yamlMatch = line.match(/^(\w+):\s*(.*)$/);
       if (yamlMatch) {
@@ -74,10 +74,10 @@ function parseAdocFrontmatter(contents: string): {
         const value = yamlMatch[2].trim();
         frontmatter[key] = value;
       }
-      
+
       bodyStartIndex++;
     }
-    
+
     // Skip blank lines after YAML front matter
     while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
       bodyStartIndex++;
