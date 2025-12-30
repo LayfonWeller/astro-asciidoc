@@ -8,6 +8,16 @@ type InternalHookParams = Parameters<
   NonNullable<AstroIntegration["hooks"]["astro:config:setup"]>
 >[0] & {
   addPageExtension(ext: string): void;
+  addContentEntryType?: (config: {
+    extensions: string[];
+    getEntryInfo: (params: { fileUrl: URL; contents: string }) => Promise<{
+      data: Record<string, unknown>;
+      body: string;
+      slug?: string;
+      rawData?: string;
+    }>;
+    contentModuleTypes?: string;
+  }) => void;
 };
 
 /**
@@ -20,6 +30,68 @@ export interface Options extends InitOptions {
   options?: ProcessorOptions;
 }
 
+/**
+ * Minimal AsciiDoc frontmatter extraction:
+ * - Title from first line starting with "= "
+ * - Attributes from leading lines like ":key: value"
+ * Stops parsing on first non-attribute, non-empty, non-title line
+ */
+function parseAdocFrontmatter(contents: string): {
+  frontmatter: Record<string, string>;
+  body: string;
+  rawFrontmatter?: string;
+} {
+  const lines = contents.split(/\r?\n/);
+  const frontmatter: Record<string, string> = {};
+  const rawFrontmatter: string[] = [];
+  let bodyStartIndex = 0;
+
+  // Skip initial blank lines
+  while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
+    bodyStartIndex++;
+  }
+
+  // Title line: "= Title"
+  if (bodyStartIndex < lines.length && /^=\s+/.test(lines[bodyStartIndex])) {
+    const titleLine = lines[bodyStartIndex].replace(/^=\s+/, "").trim();
+    if (titleLine) {
+      frontmatter.title = titleLine;
+      rawFrontmatter.push(lines[bodyStartIndex]);
+    }
+    bodyStartIndex++;
+    // Consume any immediate blank lines after title
+    while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
+      rawFrontmatter.push(lines[bodyStartIndex]);
+      bodyStartIndex++;
+    }
+  }
+
+  // Attribute lines: ":key: value" at the top
+  while (bodyStartIndex < lines.length) {
+    const line = lines[bodyStartIndex];
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      rawFrontmatter.push(line);
+      bodyStartIndex++;
+      continue;
+    }
+    const m = trimmed.match(/^:([^:]+):\s*(.*)$/);
+    if (!m) break;
+    const key = m[1].trim();
+    const value = m[2].trim();
+    frontmatter[key] = value;
+    rawFrontmatter.push(line);
+    bodyStartIndex++;
+  }
+
+  const body = lines.slice(bodyStartIndex).join("\n").trim();
+  return {
+    frontmatter,
+    body,
+    rawFrontmatter: rawFrontmatter.join("\n").trim() || undefined,
+  };
+}
+
 export default function asciidoc(opts?: Options): AstroIntegration {
   const asciidocFileExt = ".adoc";
   const { options: documentOptions, highlighters } = opts ?? {};
@@ -28,42 +100,99 @@ export default function asciidoc(opts?: Options): AstroIntegration {
   });
   let server: ViteDevServer;
 
-  function watchIncludes(file: string, includes: string[]) {
+  // Track which .adoc files depend on which include files
+  const includeGraph = new Map<string, Set<string>>(); // includePath -> Set(adocFileId)
+  let watcherInitialized = false;
+
+  function initDevWatcherOnce() {
+    if (watcherInitialized || !server) return;
+    watcherInitialized = true;
+
     server.watcher.on("change", async (f) => {
-      if (!includes.includes(f)) return;
-      const m = server.moduleGraph.getModuleById(file);
-      m && (await server.reloadModule(m));
+      const dependents = includeGraph.get(f);
+      if (!dependents || dependents.size === 0) return;
+
+      for (const adocFile of dependents) {
+        const m = server.moduleGraph.getModuleById(adocFile);
+        if (m) await server.reloadModule(m);
+      }
     });
-    server.watcher.add(includes);
+  }
+
+  function registerIncludesDev(adocFile: string, includes: string[]) {
+    if (!server) return;
+
+    for (const inc of includes) {
+      let set = includeGraph.get(inc);
+      if (!set) {
+        set = new Set();
+        includeGraph.set(inc, set);
+      }
+      set.add(adocFile);
+    }
+
+    initDevWatcherOnce();
   }
 
   return {
     name: "asciidoc",
     hooks: {
-      "astro:config:setup": (params) => {
-        const { addPageExtension, addRenderer, updateConfig, addWatchFile } =
+      "astro:config:setup": async (params) => {
+        const { addPageExtension, addRenderer, updateConfig, addWatchFile, addContentEntryType } =
           params as InternalHookParams;
 
         addRenderer({ name: "astro:mdx", serverEntrypoint: "@astrojs/mdx/server.js" });
         addPageExtension(asciidocFileExt);
+
+        // Enable Content Collections support for .adoc files
+        if (addContentEntryType) {
+          addContentEntryType({
+            extensions: [asciidocFileExt],
+            async getEntryInfo({ fileUrl, contents }) {
+              const parsed = parseAdocFrontmatter(contents);
+              return {
+                data: parsed.frontmatter,
+                body: parsed.body,
+                slug: parsed.frontmatter?.slug,
+                rawData: parsed.rawFrontmatter,
+              };
+            },
+            // Minimal type declarations to satisfy Astro's module typing
+            contentModuleTypes: "", // `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
+          });
+        }
 
         updateConfig({
           vite: {
             plugins: [
               {
                 name: "vite-plugin-astro-asciidoc",
+                enforce: "pre",
                 configureServer(s) {
                   server = s as ViteDevServer;
                 },
                 async transform(_code, id) {
                   if (!id.endsWith(asciidocFileExt)) return;
 
+                  console.log(`[asciidoc] transform start: ${id}`);
                   const doc = await converter.convert({
                     file: id,
                     options: documentOptions,
                   });
+                  console.log(`[asciidoc] transform done: ${id}`);
 
-                  watchIncludes(id, doc.includes);
+                  // Ensure Vite knows about included files in both dev and build
+                  if (Array.isArray(doc.includes)) {
+                    for (const inc of doc.includes) {
+                      try {
+                        this.addWatchFile(inc);
+                      } catch {
+                        // ignore errors
+                      }
+                      // Track for dev-time hot reloads
+                      registerIncludesDev(id, [inc]);
+                    }
+                  }
 
                   return {
                     code: `import { Fragment, jsx as h } from "astro/jsx-runtime";
@@ -97,6 +226,8 @@ export default Content;`,
 
         addWatchFile(new URL(import.meta.url));
       },
+      // Ensure we terminate the worker in all cases
+      "astro:config:done": () => {},
       "astro:server:done": async () => {
         await converter.terminate();
       },
