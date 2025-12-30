@@ -32,6 +32,7 @@ export interface Options extends InitOptions {
 
 /**
  * Minimal AsciiDoc frontmatter extraction:
+ * - YAML front matter between "---" delimiters
  * - Title from first line starting with "= "
  * - Attributes from leading lines like ":key: value"
  * Stops parsing on first non-attribute, non-empty, non-title line
@@ -51,10 +52,42 @@ function parseAdocFrontmatter(contents: string): {
     bodyStartIndex++;
   }
 
+  // Check for YAML front matter (--- at the start)
+  if (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "---") {
+    rawFrontmatter.push(lines[bodyStartIndex]);
+    bodyStartIndex++;
+    
+    // Parse YAML front matter until closing ---
+    while (bodyStartIndex < lines.length) {
+      const line = lines[bodyStartIndex];
+      rawFrontmatter.push(line);
+      
+      if (line.trim() === "---") {
+        bodyStartIndex++;
+        break;
+      }
+      
+      // Simple YAML parsing: "key: value"
+      const yamlMatch = line.match(/^(\w+):\s*(.*)$/);
+      if (yamlMatch) {
+        const key = yamlMatch[1].trim();
+        const value = yamlMatch[2].trim();
+        frontmatter[key] = value;
+      }
+      
+      bodyStartIndex++;
+    }
+    
+    // Skip blank lines after YAML front matter
+    while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
+      bodyStartIndex++;
+    }
+  }
+
   // Title line: "= Title"
   if (bodyStartIndex < lines.length && /^=\s+/.test(lines[bodyStartIndex])) {
     const titleLine = lines[bodyStartIndex].replace(/^=\s+/, "").trim();
-    if (titleLine) {
+    if (titleLine && !frontmatter.title) {
       frontmatter.title = titleLine;
       rawFrontmatter.push(lines[bodyStartIndex]);
     }
@@ -145,7 +178,7 @@ export default function asciidoc(opts?: Options): AstroIntegration {
         addPageExtension(asciidocFileExt);
 
         // Enable Content Collections support for .adoc files
-        if (addContentEntryType) {
+        // if (addContentEntryType) {
           addContentEntryType({
             extensions: [asciidocFileExt],
             async getEntryInfo({ fileUrl, contents }) {
@@ -158,9 +191,9 @@ export default function asciidoc(opts?: Options): AstroIntegration {
               };
             },
             // Minimal type declarations to satisfy Astro's module typing
-            contentModuleTypes: "", // `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
+            contentModuleTypes: `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
           });
-        }
+        // }
 
         updateConfig({
           vite: {
