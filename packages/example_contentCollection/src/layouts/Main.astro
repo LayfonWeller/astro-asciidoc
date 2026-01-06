@@ -3,9 +3,10 @@ import type { MarkdownHeading } from "astro";
 export interface Props {
   title?: string;
   headings?: MarkdownHeading[];
+  frontmatter?: Record<string, any>;
 }
 
-const { title = "Astro", headings = [] } = Astro.props;
+const { title = "Astro", headings = [], frontmatter = {} } = Astro.props;
 ---
 
 <!doctype html>
@@ -33,6 +34,9 @@ const { title = "Astro", headings = [] } = Astro.props;
     }
     <main>
       <slot />
+      <footer>
+        <p>Tags: {JSON.stringify(frontmatter.tags, {}, 2)}</p>
+    </footer>
     </main>
   </body>
 </html>

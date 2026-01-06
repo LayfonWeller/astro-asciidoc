@@ -1,8 +1,9 @@
 import type { ProcessorOptions } from "@asciidoctor/core";
 import type { AstroIntegration } from "astro";
 import type { ViteDevServer } from "vite";
-import { parseFrontmatter } from "@astrojs/markdown-remark";
+
 import AsciidocConverter from "./asciidoctor.js";
+import { parseAdocFrontmatter } from "./utility.js";
 import type { InitOptions } from "./worker.js";
 
 type InternalHookParams = Parameters<
@@ -29,75 +30,6 @@ export interface Options extends InitOptions {
    * Options passed to Asciidoctor document load and document convert.
    */
   options?: ProcessorOptions;
-}
-
-/**
- * Parse AsciiDoc frontmatter using Astro's built-in parser.
- * Supports YAML front matter between "---" delimiters and AsciiDoc attributes.
- */
-function parseAdocFrontmatter(contents: string): {
-  frontmatter: Record<string, any>;
-  body: string;
-  rawFrontmatter?: string;
-} {
-  // Use Astro's built-in frontmatter parser for YAML
-  const parsed = parseFrontmatter(contents, { frontmatter: "remove" });
-  const frontmatter = parsed.frontmatter;
-
-  // Parse remaining AsciiDoc-specific attributes from the content
-  const lines = parsed.content.split(/\r?\n/);
-  let bodyStartIndex = 0;
-  const additionalAttrs: string[] = [];
-
-  // Skip initial blank lines
-  while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
-    bodyStartIndex++;
-  }
-
-  // Title line: "= Title" (only if not already in YAML frontmatter)
-  if (bodyStartIndex < lines.length && /^=\s+/.test(lines[bodyStartIndex])) {
-    const titleLine = lines[bodyStartIndex].replace(/^=\s+/, "").trim();
-    if (titleLine && !frontmatter.title) {
-      frontmatter.title = titleLine;
-    }
-    bodyStartIndex++;
-    // Consume any immediate blank lines after title
-    while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim() === "") {
-      bodyStartIndex++;
-    }
-  }
-
-  // Attribute lines: ":key: value" at the top
-  while (bodyStartIndex < lines.length) {
-    const line = lines[bodyStartIndex];
-    const trimmed = line.trim();
-    if (trimmed === "") {
-      bodyStartIndex++;
-      continue;
-    }
-    const m = trimmed.match(/^:([^:]+):\s*(.*)$/);
-    if (!m) break;
-    const key = m[1].trim();
-    const value = m[2].trim();
-    frontmatter[key] = value;
-    additionalAttrs.push(line);
-    bodyStartIndex++;
-  }
-
-  // Combine raw frontmatter from YAML and additional attributes
-  const rawParts: string[] = [];
-  if (parsed.rawFrontmatter) {
-    rawParts.push(parsed.rawFrontmatter);
-  }
-  if (additionalAttrs.length > 0) {
-    rawParts.push(additionalAttrs.join("\n"));
-  }
-
-  return {
-    frontmatter,
-    body : parsed.content,
-    rawFrontmatter: rawParts.join("\n").trim() || undefined,
-  };
 }
 
 export default function asciidoc(opts?: Options): AstroIntegration {
@@ -153,7 +85,7 @@ export default function asciidoc(opts?: Options): AstroIntegration {
         addPageExtension(asciidocFileExt);
 
         // Enable Content Collections support for .adoc files
-        // if (addContentEntryType) {
+        if (addContentEntryType) {
           addContentEntryType({
             extensions: [asciidocFileExt],
             async getEntryInfo({ fileUrl, contents }) {
@@ -168,7 +100,7 @@ export default function asciidoc(opts?: Options): AstroIntegration {
             // Minimal type declarations to satisfy Astro's module typing
             contentModuleTypes: `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
           });
-        // }
+        }
 
         updateConfig({
           vite: {
@@ -182,12 +114,18 @@ export default function asciidoc(opts?: Options): AstroIntegration {
                 async transform(_code, id) {
                   if (!id.endsWith(asciidocFileExt)) return;
 
-                  logger.info(`transform start: ${id} code: ${JSON.stringify(_code)}`);
-                  logger.info(`transform start: ${id} documentOptions: ${JSON.stringify(documentOptions)}`);
-                  const doc = await converter.convert({
+                  let convert_file = {
                     file: id,
                     options: documentOptions,
-                  });
+                  }
+
+                  // if (_code) {
+                  //   convert_file.content = _code;
+                  // }
+
+                  logger.info(`transform start: ${id} - ${JSON.stringify(convert_file, null, 2)}`);
+
+                  const doc = await converter.convert(convert_file);
                   logger.info(`transform done: ${id}`);
 
                   // Ensure Vite knows about included files in both dev and build

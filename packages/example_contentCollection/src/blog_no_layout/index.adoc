@@ -7,7 +7,6 @@ tags:
 ---
 = Astro AsciiDoc
 Sergey Shishkin <sergey@shishkin.org>
-:layout: ~/layouts/Main.astro
 :toclevels: 2
 :numbered:
 

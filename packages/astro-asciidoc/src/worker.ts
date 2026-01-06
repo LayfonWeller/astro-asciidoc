@@ -9,7 +9,10 @@ import asciidoctor from "@asciidoctor/core";
 import type { MarkdownHeading } from "astro";
 import { fileURLToPath, pathToFileURL, URL } from "node:url";
 import { parentPort, workerData } from "node:worker_threads";
-import { VFile } from "vfile";
+
+import { parseAdocFrontmatter } from "./utility.js";
+import path from "node:path";
+import fs from "node:fs";
 
 export interface InitOptions {
   /**
@@ -161,16 +164,19 @@ async function worker(opts?: InitOptions) {
   await registerExtensions(converter.Extensions, opts?.extensions);
 
   parentPort?.on("message", (data: InputMessage) => {
-    // Create VFile to standardize handling of both file-based and virtual content
-    const vfile = new VFile({
-      value: data.content,  // undefined for file-based content
-      path: data.file,      // can be a file path or virtual identifier
-    });
+    const {frontmatter, body} = parseAdocFrontmatter(data.content as string || fs.readFileSync(data.file, 'utf-8'));
+
+    // Ensure options object exists before assigning base_dir
+    if (!data.options) data.options = {} as ProcessorOptions;
+    if (data.options.base_dir == null) {
+      data.options.base_dir = path.dirname(data.file);
+    }
 
     // Load document: use content if provided (virtual), otherwise load from file
     const doc = data.content
       ? converter.load(data.content, { ...data.options, base_dir: data.options?.base_dir })
       : converter.loadFile(data.file, data.options);
+
 
     const layout = doc.getAttribute("layout") as string | undefined;
     const html = doc.convert(<ProcessorOptions>{
@@ -184,6 +190,7 @@ async function worker(opts?: InitOptions) {
       frontmatter: {
         title: doc.getTitle(),
         asciidoc: doc.getAttributes(),
+        ...frontmatter
       },
       headings: getHeadings(doc),
       includes: getIncludes(data.file, doc.getCatalog() as Catalog),
