@@ -35,7 +35,8 @@ const { title = "Astro", headings = [], frontmatter = {} } = Astro.props;
     <main>
       <slot />
       <footer>
-        <p>Tags: {JSON.stringify(frontmatter.tags, {}, 2)}</p>
+        <p>From FrontMatter - Tags: {JSON.stringify(frontmatter.asciidoc.tags, null, 2)}</p>
+        <p>From Asciidoc    - Tags: {JSON.stringify(frontmatter.tags, null, 2)}</p>
     </footer>
     </main>
   </body>

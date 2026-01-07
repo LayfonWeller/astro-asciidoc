@@ -5,6 +5,8 @@ import type { ViteDevServer } from "vite";
 import AsciidocConverter from "./asciidoctor.js";
 import { parseAdocFrontmatter } from "./utility.js";
 import type { InitOptions } from "./worker.js";
+import fs from "node:fs";
+import { URL } from "node:url";
 
 type InternalHookParams = Parameters<
   NonNullable<AstroIntegration["hooks"]["astro:config:setup"]>
@@ -98,7 +100,11 @@ export default function asciidoc(opts?: Options): AstroIntegration {
               };
             },
             // Minimal type declarations to satisfy Astro's module typing
-            contentModuleTypes: `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
+            contentModuleTypes: fs.readFileSync(
+              new URL("content-module-types.d.ts", import.meta.url),
+              "utf8"
+            )
+            // `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
           });
         }
 
@@ -128,6 +134,9 @@ export default function asciidoc(opts?: Options): AstroIntegration {
                   const doc = await converter.convert(convert_file);
                   logger.info(`transform done: ${id}`);
 
+                  logger.info(`Document frontmatter: ${JSON.stringify(doc.frontmatter, null, 2)}`);
+                  logger.info(`Document headings: ${JSON.stringify(doc.headings, null, 2)}`);
+
                   // Ensure Vite knows about included files in both dev and build
                   if (Array.isArray(doc.includes)) {
                     for (const inc of doc.includes) {
@@ -135,6 +144,7 @@ export default function asciidoc(opts?: Options): AstroIntegration {
                         this.addWatchFile(inc);
                       } catch {
                         // ignore errors
+                        logger.warn(`Failed to add watch file for included file: ${inc}`);
                       }
                       // Track for dev-time hot reloads
                       registerIncludesDev(id, [inc]);

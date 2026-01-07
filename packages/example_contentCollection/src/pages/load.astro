@@ -4,6 +4,10 @@ import { getEntry, render } from "astro:content";
 
 const entry = await getEntry("blog", "index");
 
+if (!entry) {
+  throw new Error(`Entry not found: blog/index`);
+}
+
 console.log(`Loaded entry: ${JSON.stringify(entry,  null , 4)}`);
 
 const { Content, headings, remarkPluginFrontmatter } = await render(entry);

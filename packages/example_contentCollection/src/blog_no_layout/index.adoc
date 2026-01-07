@@ -5,10 +5,11 @@ tags:
   - astro
   - integration
 ---
-= Astro AsciiDoc
+= Astro AsciiDoc with no layout
 Sergey Shishkin <sergey@shishkin.org>
 :toclevels: 2
 :numbered:
+:tags: asciidoc, astro, integration, test
 
 Support AsciiDoc pages in Astro.
 
