@@ -104,7 +104,6 @@ export default function asciidoc(opts?: Options): AstroIntegration {
               new URL("content-module-types.d.ts", import.meta.url),
               "utf8"
             )
-            // `// Generated types for AsciiDoc content modules\nexport const file: string;\nexport const title: string;\nexport const frontmatter: Record<string, any>;\nexport const headings: any[];\nexport async function getHeadings(): Promise<any[]>;\nexport async function Content(): Promise<any>;\ndeclare const _default: typeof Content;\nexport default _default;`
           });
         }
 
@@ -134,8 +133,8 @@ export default function asciidoc(opts?: Options): AstroIntegration {
                   const doc = await converter.convert(convert_file);
                   logger.info(`transform done: ${id}`);
 
-                  logger.info(`Document frontmatter: ${JSON.stringify(doc.frontmatter, null, 2)}`);
-                  logger.info(`Document headings: ${JSON.stringify(doc.headings, null, 2)}`);
+                  logger.debug(`Document frontmatter: ${JSON.stringify(doc.frontmatter, null, 2)}`);
+                  logger.debug(`Document headings: ${JSON.stringify(doc.headings, null, 2)}`);
 
                   // Ensure Vite knows about included files in both dev and build
                   if (Array.isArray(doc.includes)) {
@@ -158,7 +157,7 @@ export const file = ${JSON.stringify(id)};
 export const title = ${JSON.stringify(doc.frontmatter.title)};
 export const frontmatter = ${JSON.stringify(doc.frontmatter)};
 export const headings = ${JSON.stringify(doc.headings)};
-export async function getHeadings() { return headings; }
+export function getHeadings() { return headings; }
 export async function Content() {
   const content = h(Fragment, { "set:html": ${JSON.stringify(doc.html)} });
   ${

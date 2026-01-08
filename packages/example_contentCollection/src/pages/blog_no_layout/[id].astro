@@ -17,18 +17,24 @@ export async function getStaticPaths() {
 // 2. For your template, you can get the entry directly from the prop
 const { post } = Astro.props;
 
-const { Content, headings, remarkPluginFrontmatter } = await render(post);
+// const { Content, headings, remarkPluginFrontmatter } = await render(post);
 
-const headings2 = await headings || [];
+// const headings2 = await headings || [];
 
 // console.log('remarkPluginFrontmatter:', remarkPluginFrontmatter);
 // console.log('headings:', headings);
 // console.log('post:', post);
+
+const rendered = await render(post);
+console.log('rendered:', rendered);
+console.log('headings type:', typeof rendered.headings);
+
+const { Content, remarkPluginFrontmatter, headings } = rendered;
 ---
 
-<Default title={remarkPluginFrontmatter.title} headings={headings2} frontmatter={remarkPluginFrontmatter}>
+<Default title={remarkPluginFrontmatter.title} headings={headings} frontmatter={remarkPluginFrontmatter}>
   <h1>{post.data.title}</h1>
   <p>written by {remarkPluginFrontmatter.asciidoc.author}</p>
   <Content />
-  <p>File: {post.filePath}</p>
+  <footer>File: {post.filePath}</footer>
 </Default>
